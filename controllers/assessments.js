@@ -32,7 +32,7 @@ async function findOwned(req) {
   if (!OBJECT_ID_RE.test(req.params.id)) return null;
   return Assessment.findOne({ _id: req.params.id, recruiter: req.user._id }).populate(
     "questionSequence",
-    "name"
+    "name questions"
   );
 }
 
@@ -126,6 +126,7 @@ exports.getResults = async (req, res, next) => {
       .sort({ createdAt: -1 });
 
     const now = new Date();
+    const total = assessment.questionSequence.questions.length;
     res.json({
       assessment: assessment.toPublic(),
       results: attempts.map((a) => ({
@@ -133,8 +134,8 @@ exports.getResults = async (req, res, next) => {
         email: a.candidate?.email ?? "(deleted user)",
         name: a.candidate?.name,
         status: attemptStatus(a, now),
-        score: a.submittedAt ? a.score : null,
-        maxScore: a.submittedAt ? a.maxScore : null,
+        answered: a.answers.length,
+        total,
         startedAt: a.startedAt,
         submittedAt: a.submittedAt,
       })),
@@ -145,7 +146,7 @@ exports.getResults = async (req, res, next) => {
 };
 
 // GET /api/assessments/:id/results/:attemptId
-// One candidate's actual responses, question by question, next to the correct answers.
+// One candidate's written answers and Helper conversation, stage by stage, next to the recruiter's guidance notes.
 exports.getAttemptDetail = async (req, res, next) => {
   try {
     const assessment = await findOwned(req);
@@ -158,29 +159,28 @@ exports.getAttemptDetail = async (req, res, next) => {
     );
     if (!attempt) return res.status(404).json({ error: "Attempt not found" });
 
-    const sequence = await QuestionSequence.findById(assessment.questionSequence._id);
+    const questions = assessment.questionSequence.questions;
     res.json({
       attempt: {
         id: attempt._id,
         email: attempt.candidate?.email ?? "(deleted user)",
         name: attempt.candidate?.name,
         status: attemptStatus(attempt),
-        score: attempt.submittedAt ? attempt.score : null,
-        maxScore: attempt.submittedAt ? attempt.maxScore : null,
+        answered: attempt.answers.length,
+        total: questions.length,
         startedAt: attempt.startedAt,
         submittedAt: attempt.submittedAt,
       },
-      responses: sequence.questions.map((q, i) => {
-        const selectedIndex = attempt.answers[i] ?? null;
-        return {
-          prompt: q.prompt,
-          options: q.options,
-          points: q.points,
-          selectedIndex,
-          correctIndex: q.correctIndex,
-          correct: selectedIndex === q.correctIndex,
-        };
-      }),
+      // One entry per stage: the question, what the candidate wrote (null if never reached),
+      // and how they used the Helper on it.
+      responses: questions.map((q, i) => ({
+        prompt: q.prompt,
+        guidance: q.guidance ?? null,
+        answer: attempt.answers[i] ?? null,
+        helper: attempt.helperMessages
+          .filter((m) => m.stage === i)
+          .map((m) => ({ role: m.role, content: m.content })),
+      })),
     });
   } catch (err) {
     next(err);
