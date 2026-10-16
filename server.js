@@ -19,6 +19,9 @@ if (process.env.JWT_SECRET.length < 32) {
 
 // Routes are required after the env check because the auth controller reads env at load time.
 const authRoutes = require("./routes/auth");
+const questionSequenceRoutes = require("./routes/questionSequences");
+const assessmentRoutes = require("./routes/assessments");
+const attemptRoutes = require("./routes/attempts");
 
 const PORT = process.env.PORT || 8000;
 const isProd = process.env.NODE_ENV === "production";
@@ -57,6 +60,9 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/question-sequences", questionSequenceRoutes);
+app.use("/api/assessments", assessmentRoutes);
+app.use("/api/attempts", attemptRoutes);
 
 // ---------- 404 + error handling ----------
 app.use((req, res) => res.status(404).json({ error: "Not found" }));
