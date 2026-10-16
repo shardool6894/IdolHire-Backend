@@ -1,6 +1,6 @@
 const express = require("express");
 const rateLimit = require("express-rate-limit");
-const { joinAssessment, submitAttempt } = require("../controllers/attempts");
+const { joinAssessment, saveAnswer, submitAttempt } = require("../controllers/attempts");
 const { requireAuth, requireRole } = require("../middleware/auth");
 
 const router = express.Router();
@@ -17,6 +17,7 @@ const joinLimiter = rateLimit({
 router.use(requireAuth, requireRole("candidate"));
 
 router.post("/join", joinLimiter, joinAssessment);
+router.post("/:id/answers", saveAnswer);
 router.post("/:id/submit", submitAttempt);
 
 module.exports = router;

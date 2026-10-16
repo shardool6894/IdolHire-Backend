@@ -4,6 +4,7 @@ const {
   listAssessments,
   updateAssessmentStatus,
   getResults,
+  getAttemptDetail,
 } = require("../controllers/assessments");
 const { requireAuth, requireRole } = require("../middleware/auth");
 
@@ -16,5 +17,6 @@ router.get("/", listAssessments);
 router.post("/", createAssessment);
 router.patch("/:id", updateAssessmentStatus);
 router.get("/:id/results", getResults);
+router.get("/:id/results/:attemptId", getAttemptDetail);
 
 module.exports = router;

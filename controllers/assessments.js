@@ -144,4 +144,47 @@ exports.getResults = async (req, res, next) => {
   }
 };
 
+// GET /api/assessments/:id/results/:attemptId
+// One candidate's actual responses, question by question, next to the correct answers.
+exports.getAttemptDetail = async (req, res, next) => {
+  try {
+    const assessment = await findOwned(req);
+    if (!assessment || !OBJECT_ID_RE.test(req.params.attemptId)) {
+      return res.status(404).json({ error: "Attempt not found" });
+    }
+    const attempt = await Attempt.findOne({ _id: req.params.attemptId, assessment: assessment._id }).populate(
+      "candidate",
+      "email name"
+    );
+    if (!attempt) return res.status(404).json({ error: "Attempt not found" });
+
+    const sequence = await QuestionSequence.findById(assessment.questionSequence._id);
+    res.json({
+      attempt: {
+        id: attempt._id,
+        email: attempt.candidate?.email ?? "(deleted user)",
+        name: attempt.candidate?.name,
+        status: attemptStatus(attempt),
+        score: attempt.submittedAt ? attempt.score : null,
+        maxScore: attempt.submittedAt ? attempt.maxScore : null,
+        startedAt: attempt.startedAt,
+        submittedAt: attempt.submittedAt,
+      },
+      responses: sequence.questions.map((q, i) => {
+        const selectedIndex = attempt.answers[i] ?? null;
+        return {
+          prompt: q.prompt,
+          options: q.options,
+          points: q.points,
+          selectedIndex,
+          correctIndex: q.correctIndex,
+          correct: selectedIndex === q.correctIndex,
+        };
+      }),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports._internals = { generateToken, attemptStatus };
