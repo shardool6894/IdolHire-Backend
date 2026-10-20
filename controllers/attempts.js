@@ -1,6 +1,7 @@
 const Assessment = require("../models/assessment");
 const Attempt = require("../models/attempt");
 const ai = require("../services/aiService");
+const { sequenceMatchesType } = require("../config/interviewTypes");
 
 const OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
 // Network lag / slow clocks: accept an action that lands this long after expiry.
@@ -131,6 +132,18 @@ exports.joinAssessment = async (req, res, next) => {
       "questionSequence"
     );
     if (!assessment) return res.status(404).json({ error: "Invalid or closed assessment token" });
+
+    // Safety net for assessments created before type/domain was enforced: never show a candidate
+    // questions from the wrong domain. Better to refuse than to run an invalid interview.
+    if (!sequenceMatchesType(assessment.questionSequence, assessment.typeOfInterview)) {
+      console.error(
+        `Assessment ${assessment._id} is misconfigured: type=${assessment.typeOfInterview}, ` +
+          `sequence domain=${assessment.questionSequence?.domain}`
+      );
+      return res.status(409).json({
+        error: "This assessment is misconfigured. Please ask the recruiter to create a new one.",
+      });
+    }
 
     let attempt = await Attempt.findOne({ assessment: assessment._id, candidate: req.user._id });
 

@@ -1,0 +1,204 @@
+diff -ruN -x node_modules -x dist IdolHire-Backend-main/config/interviewTypes.js IdolHire-Backend-main/config/interviewTypes.js
+--- IdolHire-Backend-main/config/interviewTypes.js	1970-01-01 00:00:00.000000000 +0000
++++ IdolHire-Backend-main/config/interviewTypes.js	2026-10-20 19:17:12.478888143 +0000
+@@ -0,0 +1,23 @@
++// The one place that decides which question-sequence domain belongs to which interview type.
++// Used when listing sequences, when creating an assessment, and when a candidate joins, so the
++// three can never disagree about what an "SDE" interview is allowed to contain.
++//
++// Note: "General" sequences are intentionally not mapped to either type. If you want them usable
++// in both, change domainsFor() to return ["SDE", "General"] / ["Manufacturing", "General"].
++
++const DOMAIN_FOR_TYPE = {
++  SDE: "SDE",
++  "Non-SDE": "Manufacturing",
++};
++
++const INTERVIEW_TYPES = Object.keys(DOMAIN_FOR_TYPE);
++
++const isInterviewType = (value) => typeof value === "string" && Object.hasOwn(DOMAIN_FOR_TYPE, value);
++
++const domainFor = (typeOfInterview) => DOMAIN_FOR_TYPE[typeOfInterview];
++
++// True when a sequence (anything with a `domain`) is allowed in an interview of this type.
++const sequenceMatchesType = (sequence, typeOfInterview) =>
++  Boolean(sequence) && isInterviewType(typeOfInterview) && sequence.domain === domainFor(typeOfInterview);
++
++module.exports = { INTERVIEW_TYPES, isInterviewType, domainFor, sequenceMatchesType };
+diff -ruN -x node_modules -x dist IdolHire-Backend-main/controllers/assessments.js IdolHire-Backend-main/controllers/assessments.js
+--- IdolHire-Backend-main/controllers/assessments.js	2026-10-20 18:59:19.000000000 +0000
++++ IdolHire-Backend-main/controllers/assessments.js	2026-10-20 19:17:22.745787620 +0000
+@@ -2,6 +2,7 @@
+ const Assessment = require("../models/assessment");
+ const Attempt = require("../models/attempt");
+ const QuestionSequence = require("../models/questionSequence");
++const { isInterviewType, domainFor, sequenceMatchesType } = require("../config/interviewTypes");
+ 
+ const OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
+ const MAX_MINUTES = 480;
+@@ -43,32 +44,31 @@
+ 
+ // ---------- controllers (recruiter only) ----------
+ 
+-// GET /api/question-sequences
++// GET /api/question-sequences?typeOfInterview=SDE|Non-SDE
++// The type is required: a missing or unknown value used to fall through to "return every
++// sequence", which is how recruiters ended up picking questions from the wrong domain.
+ exports.listQuestionSequences = async (req, res, next) => {
+   try {
+     const { typeOfInterview } = req.query;
+-    
+-    // Map the frontend role selection to the new schema domain
+-    let filter = {};
+-    if (typeOfInterview === "SDE") {
+-      filter.domain = "SDE";
+-    } else if (typeOfInterview === "Non-SDE") {
+-      filter.domain = "Manufacturing";
++    if (!isInterviewType(typeOfInterview)) {
++      return res.status(400).json({ error: "Pick an interview type" });
+     }
+ 
+-    const sequences = await QuestionSequence.find(filter).select("name").sort("name");
++    const sequences = await QuestionSequence.find({ domain: domainFor(typeOfInterview) })
++      .select("name")
++      .sort("name");
+     res.json({ sequences: sequences.map((s) => ({ id: s._id, name: s.name })) });
+   } catch (err) {
+     next(err);
+   }
+ };
+ 
+-// POST /api/assessments  { questionSequenceId, durationMinutes }
++// POST /api/assessments  { typeOfInterview, questionSequenceId, durationMinutes }
+ exports.createAssessment = async (req, res, next) => {
+   try {
+     const { questionSequenceId, durationMinutes, typeOfInterview } = req.body;
+ 
+-    if (!["SDE", "Non-SDE"].includes(typeOfInterview)) {
++    if (!isInterviewType(typeOfInterview)) {
+       return res.status(400).json({ error: "Pick an interview type" });
+     }
+ 
+@@ -78,9 +78,16 @@
+     if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > MAX_MINUTES) {
+       return res.status(400).json({ error: `Duration must be a whole number from 1 to ${MAX_MINUTES} minutes` });
+     }
+-    if (!(await QuestionSequence.exists({ _id: questionSequenceId }))) {
++    const sequence = await QuestionSequence.findById(questionSequenceId).select("domain").lean();
++    if (!sequence) {
+       return res.status(404).json({ error: "Question sequence not found" });
+     }
++    // The actual fix: the sequence must belong to the interview type being created.
++    if (!sequenceMatchesType(sequence, typeOfInterview)) {
++      return res.status(400).json({
++        error: `That question sequence is for ${sequence.domain} interviews and can't be used in a ${typeOfInterview} assessment`,
++      });
++    }
+ 
+     // Token collisions are very unlikely, but the unique index is the real guard: retry if one hits.
+     for (let attempt = 0; attempt < 5; attempt++) {
+diff -ruN -x node_modules -x dist IdolHire-Backend-main/controllers/attempts.js IdolHire-Backend-main/controllers/attempts.js
+--- IdolHire-Backend-main/controllers/attempts.js	2026-10-20 18:59:19.000000000 +0000
++++ IdolHire-Backend-main/controllers/attempts.js	2026-10-20 19:17:27.906887790 +0000
+@@ -1,6 +1,7 @@
+ const Assessment = require("../models/assessment");
+ const Attempt = require("../models/attempt");
+ const ai = require("../services/aiService");
++const { sequenceMatchesType } = require("../config/interviewTypes");
+ 
+ const OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
+ // Network lag / slow clocks: accept an action that lands this long after expiry.
+@@ -132,6 +133,18 @@
+     );
+     if (!assessment) return res.status(404).json({ error: "Invalid or closed assessment token" });
+ 
++    // Safety net for assessments created before type/domain was enforced: never show a candidate
++    // questions from the wrong domain. Better to refuse than to run an invalid interview.
++    if (!sequenceMatchesType(assessment.questionSequence, assessment.typeOfInterview)) {
++      console.error(
++        `Assessment ${assessment._id} is misconfigured: type=${assessment.typeOfInterview}, ` +
++          `sequence domain=${assessment.questionSequence?.domain}`
++      );
++      return res.status(409).json({
++        error: "This assessment is misconfigured. Please ask the recruiter to create a new one.",
++      });
++    }
++
+     let attempt = await Attempt.findOne({ assessment: assessment._id, candidate: req.user._id });
+ 
+     if (!attempt) {
+diff -ruN -x node_modules -x dist IdolHire-Backend-main/package.json IdolHire-Backend-main/package.json
+--- IdolHire-Backend-main/package.json	2026-10-20 18:59:19.000000000 +0000
++++ IdolHire-Backend-main/package.json	2026-10-20 19:17:38.625288536 +0000
+@@ -7,6 +7,7 @@
+     "start": "node server.js",
+     "dev": "nodemon server.js",
+     "seed": "node scripts/seed.js",
++    "audit": "node scripts/auditAssessments.js",
+     "test": "echo \"Error: no test specified\" && exit 1"
+   },
+   "keywords": [],
+diff -ruN -x node_modules -x dist IdolHire-Backend-main/scripts/auditAssessments.js IdolHire-Backend-main/scripts/auditAssessments.js
+--- IdolHire-Backend-main/scripts/auditAssessments.js	1970-01-01 00:00:00.000000000 +0000
++++ IdolHire-Backend-main/scripts/auditAssessments.js	2026-10-20 19:17:37.142887579 +0000
+@@ -0,0 +1,60 @@
++// Usage:
++//   npm run audit            -> list assessments whose question sequence doesn't match their interview type
++//   npm run audit -- --close -> same, and also CLOSE the still-open ones so no new candidate can join them
++//
++// Nothing is deleted or re-typed: which side is "wrong" (the type or the sequence) is the recruiter's call.
++// Closing only stops new joins; attempts already running are untouched.
++require("dotenv").config();
++const mongoose = require("mongoose");
++const Assessment = require("../models/assessment");
++require("../models/questionSequence"); // registers the model for populate()
++const Attempt = require("../models/attempt");
++const { sequenceMatchesType, domainFor } = require("../config/interviewTypes");
++
++async function main() {
++  if (!process.env.MONGODB_URI) throw new Error("MONGODB_URI is not set");
++  const shouldClose = process.argv.includes("--close");
++  await mongoose.connect(process.env.MONGODB_URI);
++
++  const assessments = await Assessment.find().populate("questionSequence", "name domain");
++  const bad = assessments.filter((a) => !sequenceMatchesType(a.questionSequence, a.typeOfInterview));
++
++  if (bad.length === 0) {
++    console.log(`Checked ${assessments.length} assessment(s): all question sequences match their interview type.`);
++  } else {
++    console.log(`Checked ${assessments.length} assessment(s): ${bad.length} mismatched.\n`);
++    for (const a of bad) {
++      const attempts = await Attempt.countDocuments({ assessment: a._id });
++      const seq = a.questionSequence;
++      console.log(
++        `- token ${a.token} [${a.status}] created ${a.createdAt.toISOString().slice(0, 10)}\n` +
++          `    interview type : ${a.typeOfInterview} (expects domain "${domainFor(a.typeOfInterview)}")\n` +
++          `    sequence       : ${seq ? `"${seq.name}" (domain "${seq.domain ?? "none"}")` : "MISSING"}\n` +
++          `    candidate attempts so far: ${attempts}`
++      );
++    }
++
++    if (shouldClose) {
++      const ids = bad.filter((a) => a.status === "OPEN").map((a) => a._id);
++      const result = await Assessment.updateMany({ _id: { $in: ids } }, { $set: { status: "CLOSED" } });
++      console.log(`\nClosed ${result.modifiedCount} open mismatched assessment(s).`);
++    } else {
++      console.log("\nRe-run with --close to stop new candidates joining the open ones.");
++    }
++  }
++
++  // Sequences that no interview type can use, so recruiters never see them.
++  const QuestionSequence = mongoose.model("QuestionSequence");
++  const orphaned = await QuestionSequence.find({ domain: { $nin: ["SDE", "Manufacturing"] } }).select("name domain");
++  if (orphaned.length) {
++    console.log(`\nNote: ${orphaned.length} sequence(s) have a domain neither interview type can select:`);
++    orphaned.forEach((s) => console.log(`  - "${s.name}" (domain "${s.domain ?? "none"}")`));
++  }
++
++  await mongoose.connection.close();
++}
++
++main().catch((err) => {
++  console.error(err.message);
++  process.exit(1);
++});

@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const Assessment = require("../models/assessment");
 const Attempt = require("../models/attempt");
 const QuestionSequence = require("../models/questionSequence");
+const { isInterviewType, domainFor, sequenceMatchesType } = require("../config/interviewTypes");
 
 const OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
 const MAX_MINUTES = 480;
@@ -43,32 +44,31 @@ async function findOwned(req) {
 
 // ---------- controllers (recruiter only) ----------
 
-// GET /api/question-sequences
+// GET /api/question-sequences?typeOfInterview=SDE|Non-SDE
+// The type is required: a missing or unknown value used to fall through to "return every
+// sequence", which is how recruiters ended up picking questions from the wrong domain.
 exports.listQuestionSequences = async (req, res, next) => {
   try {
     const { typeOfInterview } = req.query;
-    
-    // Map the frontend role selection to the new schema domain
-    let filter = {};
-    if (typeOfInterview === "SDE") {
-      filter.domain = "SDE";
-    } else if (typeOfInterview === "Non-SDE") {
-      filter.domain = "Manufacturing";
+    if (!isInterviewType(typeOfInterview)) {
+      return res.status(400).json({ error: "Pick an interview type" });
     }
 
-    const sequences = await QuestionSequence.find(filter).select("name").sort("name");
+    const sequences = await QuestionSequence.find({ domain: domainFor(typeOfInterview) })
+      .select("name")
+      .sort("name");
     res.json({ sequences: sequences.map((s) => ({ id: s._id, name: s.name })) });
   } catch (err) {
     next(err);
   }
 };
 
-// POST /api/assessments  { questionSequenceId, durationMinutes }
+// POST /api/assessments  { typeOfInterview, questionSequenceId, durationMinutes }
 exports.createAssessment = async (req, res, next) => {
   try {
     const { questionSequenceId, durationMinutes, typeOfInterview } = req.body;
 
-    if (!["SDE", "Non-SDE"].includes(typeOfInterview)) {
+    if (!isInterviewType(typeOfInterview)) {
       return res.status(400).json({ error: "Pick an interview type" });
     }
 
@@ -78,8 +78,15 @@ exports.createAssessment = async (req, res, next) => {
     if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > MAX_MINUTES) {
       return res.status(400).json({ error: `Duration must be a whole number from 1 to ${MAX_MINUTES} minutes` });
     }
-    if (!(await QuestionSequence.exists({ _id: questionSequenceId }))) {
+    const sequence = await QuestionSequence.findById(questionSequenceId).select("domain").lean();
+    if (!sequence) {
       return res.status(404).json({ error: "Question sequence not found" });
+    }
+    // The actual fix: the sequence must belong to the interview type being created.
+    if (!sequenceMatchesType(sequence, typeOfInterview)) {
+      return res.status(400).json({
+        error: `That question sequence is for ${sequence.domain} interviews and can't be used in a ${typeOfInterview} assessment`,
+      });
     }
 
     // Token collisions are very unlikely, but the unique index is the real guard: retry if one hits.
