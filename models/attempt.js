@@ -11,6 +11,16 @@ const helperMessageSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// The AI service's score for one answered stage (0-5) and the reason, which is safe to show the candidate.
+const evaluationSchema = new mongoose.Schema(
+  {
+    stage: { type: Number, required: true },
+    score: { type: Number, required: true, min: 0, max: 5 },
+    rationale: { type: String, required: true },
+  },
+  { _id: false }
+);
+
 // One candidate's go at one assessment.
 const attemptSchema = new mongoose.Schema(
   {
@@ -25,6 +35,11 @@ const attemptSchema = new mongoose.Schema(
     // Stages where the Helper is locked (the candidate clicked "I'm ready to answer" or answered).
     lockedStages: { type: [Number], default: [] },
     helperMessages: { type: [helperMessageSchema], default: [] },
+    // Filled in as answers are graded, and once more when the test is submitted.
+    evaluations: { type: [evaluationSchema], default: [] },
+    overallFeedback: { type: String }, // closing summary, safe to show the candidate
+    aiSteeringScore: { type: Number, min: 1, max: 5 }, // how well they used the Helper (recruiter only)
+    aiSteeringRationale: { type: String }, // recruiter only
   },
   { timestamps: true }
 );

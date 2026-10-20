@@ -1,6 +1,6 @@
 const Assessment = require("../models/assessment");
 const Attempt = require("../models/attempt");
-const { askHelper } = require("./helper");
+const ai = require("../services/aiService");
 
 const OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
 // Network lag / slow clocks: accept an action that lands this long after expiry.
@@ -10,8 +10,9 @@ const MAX_ANSWER_CHARS = 4000;
 const MAX_HELPER_MESSAGE_CHARS = 500;
 const MAX_HELPER_QUESTIONS_PER_STAGE = 10;
 
-// What a candidate is allowed to see: the prompts only, never the recruiter's guidance.
-const questionsForCandidate = (sequence) => sequence.questions.map((q) => ({ prompt: q.prompt }));
+// What a candidate is allowed to see: the prompt (and any AI-copilot claim), never the recruiter's guidance.
+const questionsForCandidate = (sequence) =>
+  sequence.questions.map((q) => ({ prompt: q.prompt, trapClaim: q.trapClaim || null }));
 
 const helperMessagesFor = (attempt, stage) =>
   attempt.helperMessages.filter((m) => m.stage === stage).map((m) => ({ role: m.role, content: m.content }));
@@ -19,7 +20,7 @@ const helperMessagesFor = (attempt, stage) =>
 function attemptPayload(attempt, assessment) {
   const current = attempt.answers.length; // stages are answered in order, so this is the current stage
   return {
-    attempt: { id: attempt._id, startedAt: attempt.startedAt, expiresAt: attempt.expiresAt },
+    attempt: { id: attempt._id, startedAt: attempt.startedAt, expiresAt: attempt.expiresAt, typeOfInterview: assessment.typeOfInterview },
     durationMinutes: assessment.durationMinutes,
     questions: questionsForCandidate(assessment.questionSequence),
     answers: attempt.answers, // already-submitted stages, so a refresh resumes where they left off
@@ -57,7 +58,61 @@ async function loadActiveAttempt(req, res) {
     res.status(409).json({ error: "All stages are already answered" });
     return null;
   }
-  return { attempt, questions, current };
+  return { attempt, sequence: assessment.questionSequence, questions, current };
+}
+
+// Grades one answered stage through the AI service and stores the result. The filter makes it a
+// no-op if that stage already has a score (e.g. the timer's final submit racing an in-flight save).
+async function gradeStage(attempt, questions, stage) {
+  const question = questions[stage];
+  const previous = attempt.evaluations
+    .filter((e) => e.stage < stage)
+    .map((e) => ({ stage: e.stage, axis: questions[e.stage]?.axis, score: e.score, rationale: e.rationale }));
+  const { score, rationale } = await ai.evaluateAnswer({ question, answer: attempt.answers[stage], previous });
+  await Attempt.updateOne(
+    { _id: attempt._id, "evaluations.stage": { $ne: stage } },
+    { $push: { evaluations: { stage, score, rationale } } }
+  );
+}
+
+// Run after the final submit: grades any answered stage that still has no score (its own grading
+// failed earlier), then asks the service for the closing summary. Best effort: if the AI service is
+// down the submission still stands, and the candidate just gets less feedback.
+async function gradeAndSummarize(attemptId) {
+  let attempt = await Attempt.findById(attemptId);
+  const assessment = await Assessment.findById(attempt.assessment).populate("questionSequence");
+  const questions = assessment.questionSequence.questions;
+
+  for (let stage = 0; stage < attempt.answers.length; stage++) {
+    if (attempt.evaluations.some((e) => e.stage === stage)) continue;
+    try {
+      await gradeStage(attempt, questions, stage);
+      attempt = await Attempt.findById(attemptId);
+    } catch (err) {
+      console.error(`Grading stage ${stage} failed at submit: ${err.message}`);
+      break; // the service is probably down; don't make the candidate wait through every stage
+    }
+  }
+
+  const graded = [...attempt.evaluations].sort((a, b) => a.stage - b.stage);
+  if (graded.length > 0 && !attempt.overallFeedback) {
+    try {
+      const summary = await ai.finalizeSession({
+        stages: graded.map((e) => ({ stage: e.stage, axis: questions[e.stage]?.axis, score: e.score, rationale: e.rationale })),
+        helperMessages: attempt.helperMessages.slice(-300).map((m) => ({ role: m.role, content: m.content })),
+      });
+      await Attempt.updateOne({ _id: attemptId }, { $set: summary });
+      attempt = await Attempt.findById(attemptId);
+    } catch (err) {
+      console.error(`Finalizing the summary failed: ${err.message}`);
+    }
+  }
+
+  // Only what the candidate may see: per-stage score + reason and the overall feedback.
+  return {
+    stages: graded.map((e) => ({ stage: e.stage, score: e.score, rationale: e.rationale })),
+    overallFeedback: attempt.overallFeedback ?? null,
+  };
 }
 
 // ---------- controllers (candidate only) ----------
@@ -84,6 +139,7 @@ exports.joinAssessment = async (req, res, next) => {
       try {
         attempt = await Attempt.create({
           assessment: assessment._id,
+          typeOfInterview: assessment.typeOfInterview,
           candidate: req.user._id,
           startedAt,
           expiresAt: new Date(startedAt.getTime() + assessment.durationMinutes * 60 * 1000),
@@ -114,7 +170,7 @@ exports.askHelperHint = async (req, res, next) => {
   try {
     const loaded = await loadActiveAttempt(req, res);
     if (!loaded) return;
-    const { attempt, questions, current } = loaded;
+    const { attempt, sequence, questions, current } = loaded;
 
     const message = typeof req.body.message === "string" ? req.body.message.trim() : "";
     if (!message) return res.status(400).json({ error: "Type a question for the Helper" });
@@ -133,9 +189,11 @@ exports.askHelperHint = async (req, res, next) => {
 
     let reply;
     try {
-      reply = await askHelper(questions[current].prompt, history, message);
+      reply = await ai.askHelper({ sequence, prompt: questions[current].prompt, history, message });
     } catch (err) {
-      if (err.status) return res.status(err.status).json({ error: err.message });
+      if (err instanceof ai.AiServiceError) {
+        return res.status(err.status).json({ error: `The Helper isn't available right now (${err.message}).` });
+      }
       throw err;
     }
 
@@ -188,7 +246,7 @@ exports.saveAnswer = async (req, res, next) => {
   try {
     const loaded = await loadActiveAttempt(req, res);
     if (!loaded) return;
-    const { attempt, current } = loaded;
+    const { attempt, questions, current } = loaded;
 
     const { questionIndex, answer } = req.body;
     if (questionIndex !== current) {
@@ -209,7 +267,17 @@ exports.saveAnswer = async (req, res, next) => {
     );
     if (!saved) return res.status(409).json({ error: "That stage was already answered" });
 
-    res.json({ saved: true });
+    // Grade it now so the work is spread over the test instead of piling up at the end. The answer is
+    // already safely saved, so if grading fails the candidate carries on and it's retried at submit.
+    let graded = true;
+    try {
+      await gradeStage(await Attempt.findById(attempt._id), questions, current);
+    } catch (err) {
+      graded = false;
+      console.error(`Grading stage ${current} failed: ${err.message}`);
+    }
+
+    res.json({ saved: true, graded });
   } catch (err) {
     next(err);
   }
@@ -217,6 +285,7 @@ exports.saveAnswer = async (req, res, next) => {
 
 // POST /api/attempts/:id/submit
 // Final submit (also used by "End test" and the timer running out): stages not answered stay blank.
+// Responds with the candidate's results once grading is done, which can take a few seconds.
 exports.submitAttempt = async (req, res, next) => {
   try {
     if (!OBJECT_ID_RE.test(req.params.id)) return res.status(404).json({ error: "Attempt not found" });
@@ -234,7 +303,7 @@ exports.submitAttempt = async (req, res, next) => {
     );
     if (!saved) return res.status(409).json({ error: "Already submitted" });
 
-    res.json({ submitted: true });
+    res.json({ submitted: true, results: await gradeAndSummarize(attempt._id) });
   } catch (err) {
     next(err);
   }

@@ -7,6 +7,11 @@ const questionSchema = new mongoose.Schema(
     // Recruiter-only notes on what a strong answer covers. Never sent to candidates
     // or to the Helper, so neither can leak it.
     guidance: { type: String, trim: true, maxlength: 2000 },
+    // Optional rubric axis for the scorer, e.g. "Technical Correctness". Blank = generic "Answer Quality".
+    axis: { type: String, trim: true, maxlength: 60 },
+    // Optional claim from an "AI copilot" that the candidate is expected to scrutinise. Shown to the
+    // candidate with the question, and given to the scorer.
+    trapClaim: { type: String, trim: true, maxlength: 1000 },
   },
   { _id: false }
 );
@@ -14,6 +19,9 @@ const questionSchema = new mongoose.Schema(
 const questionSequenceSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, unique: true, trim: true },
+    // Background notes the Helper searches when answering hints. Paragraphs separated by a blank line.
+    // Keep it neutral: it is given to the Helper, so don't put the answers in it.
+    sourceMaterial: { type: String, maxlength: 20000 },
     questions: { type: [questionSchema], default: [] },
   },
   { timestamps: true }

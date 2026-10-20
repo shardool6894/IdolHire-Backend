@@ -22,6 +22,7 @@ const authRoutes = require("./routes/auth");
 const questionSequenceRoutes = require("./routes/questionSequences");
 const assessmentRoutes = require("./routes/assessments");
 const attemptRoutes = require("./routes/attempts");
+const sandboxRoutes = require("./routes/sandbox");
 
 const PORT = process.env.PORT || 8000;
 const isProd = process.env.NODE_ENV === "production";
@@ -63,7 +64,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/question-sequences", questionSequenceRoutes);
 app.use("/api/assessments", assessmentRoutes);
 app.use("/api/attempts", attemptRoutes);
-
+app.use("/api/sandbox", sandboxRoutes);
 // ---------- 404 + error handling ----------
 app.use((req, res) => res.status(404).json({ error: "Not found" }));
 

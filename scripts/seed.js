@@ -10,6 +10,18 @@ const q = (prompt, guidance) => ({ prompt, guidance });
 const sequences = [
   {
     name: "Robotic Welding Cell",
+    // Neutral background the Helper can search. Definitions only: don't put the answers in here.
+    // Paragraphs are separated by a blank line, and each one is searched separately.
+    sourceMaterial: [
+      "Gas metal arc welding, often called MIG welding, feeds a continuous consumable wire electrode through a torch while shielding gas flows around the arc and the weld pool. In a robotic cell the robot moves the torch along a programmed path, while the power source controls wire feed speed and voltage.",
+      "Shielding gas protects the molten weld pool from oxygen, nitrogen and moisture in the surrounding air. The gas composition influences arc stability, spatter, how metal transfers across the arc, how deeply the weld penetrates and how the finished bead looks.",
+      "Metal transfer mode describes how filler metal moves across the arc to the weld pool. In short circuit transfer the wire repeatedly touches the pool. In spray transfer a steady stream of fine droplets crosses the arc. Pulsed transfer alternates between a high and a low current.",
+      "Porosity means gas pockets trapped inside solidified weld metal. It weakens the weld and is usually found by visual inspection, radiography or ultrasonic testing.",
+      "Heat input is the energy delivered to the work per unit length of weld. It depends on current, voltage and travel speed, and it affects penetration, bead shape, distortion and the properties of the heat affected zone.",
+      "A weave pattern moves the torch from side to side while travelling, which makes a wider bead. A stringer bead is a narrow pass made without side to side motion. Thick joints are often built up from several passes laid on top of or beside each other, with the interpass temperature kept within a limit.",
+      "Fit-up describes how well the parts line up before welding, including the root gap between them. A fixture holds the parts in position. A welding procedure specification, or WPS, records the parameters that have been qualified for a particular weld.",
+      "A macro etch is a way of examining a polished and etched cross section of a weld to see its penetration, fusion and bead profile. Destructive tests such as bend tests and non destructive tests such as dye penetrant are used to check weld quality.",
+    ].join("\n\n"),
     questions: [
       q(
         "You're programming a robotic GMAW (MIG) cell to weld carbon-steel structural beams. Recommend a baseline shielding gas and justify it in terms of arc behavior and bead quality.",
@@ -33,27 +45,12 @@ const sequences = [
       ),
     ],
   },
-  {
-    name: "Web Debugging Scenarios",
-    questions: [
-      q(
-        "A React page keeps showing a stale value after a button click, even though the click handler definitely runs. What are the likely causes, and how would you narrow them down?",
-        "Mutating state instead of replacing it, stale closures, missing effect dependencies, reading state right after setState, derived state copied into another state. Narrowing: log inside the handler and render, React DevTools, minimal reproduction."
-      ),
-      q(
-        "An API endpoint is slow only for some users. How would you investigate?",
-        "Compare slow vs fast users (data volume, permissions, region, device), look at latency percentiles and traces/logs, check queries for N+1 patterns, missing indexes and large payloads, check caching, then reproduce with the slow user's data. Credit a hypothesis-driven approach over guessing."
-      ),
-      q(
-        "Users report that clicking 'Pay' twice sometimes creates two orders. Explain why this happens and how you would prevent it at more than one layer.",
-        "Race between duplicate requests. Prevent: disable the button while pending (UI), idempotency keys or deduplication on the server, unique constraints or transactions in the database. Credit recognizing the UI fix alone is not enough."
-      ),
-    ],
-  },
 ];
 
-// The earlier multiple-choice starter sets don't fit the open-ended format any more.
-const RETIRED = ["JavaScript Fundamentals", "React Basics"];
+// Earlier starter sets that no longer fit.
+// "Web Debugging Scenarios" was dropped too: the AI service's Helper is written for engineering and
+// manufacturing subjects, so it would treat software questions as off topic.
+const RETIRED = ["JavaScript Fundamentals", "React Basics", "Web Debugging Scenarios"];
 
 async function main() {
   if (!process.env.MONGODB_URI) throw new Error("MONGODB_URI is not set");

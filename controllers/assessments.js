@@ -5,6 +5,7 @@ const QuestionSequence = require("../models/questionSequence");
 
 const OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
 const MAX_MINUTES = 480;
+const MAX_STAGE_SCORE = 5; // the AI service scores each stage 0-5
 
 // No 0/O/1/I so tokens are easy to read out loud. 32 characters, so
 // `byte % 32` has no modulo bias.
@@ -19,6 +20,10 @@ function generateToken() {
   }
   return out; // e.g. "K7QM-X2RT"
 }
+
+// Sum of the stage scores that exist, or null when nothing has been graded yet.
+const totalScore = (attempt) =>
+  attempt.evaluations.length ? attempt.evaluations.reduce((sum, e) => sum + e.score, 0) : null;
 
 // Not stored: derived from the timestamps so it can never go stale.
 function attemptStatus(attempt, now = new Date()) {
@@ -51,7 +56,7 @@ exports.listQuestionSequences = async (req, res, next) => {
 // POST /api/assessments  { questionSequenceId, durationMinutes }
 exports.createAssessment = async (req, res, next) => {
   try {
-    const { questionSequenceId, durationMinutes } = req.body;
+    const { questionSequenceId, durationMinutes, typeOfInterview } = req.body;
 
     if (typeof questionSequenceId !== "string" || !OBJECT_ID_RE.test(questionSequenceId)) {
       return res.status(400).json({ error: "Pick a question sequence" });
@@ -68,6 +73,7 @@ exports.createAssessment = async (req, res, next) => {
       try {
         const assessment = await Assessment.create({
           recruiter: req.user._id,
+          typeOfInterview: typeOfInterview,
           questionSequence: questionSequenceId,
           durationMinutes,
           token: generateToken(),
@@ -136,6 +142,8 @@ exports.getResults = async (req, res, next) => {
         status: attemptStatus(a, now),
         answered: a.answers.length,
         total,
+        score: totalScore(a),
+        maxScore: total * MAX_STAGE_SCORE,
         startedAt: a.startedAt,
         submittedAt: a.submittedAt,
       })),
@@ -146,7 +154,7 @@ exports.getResults = async (req, res, next) => {
 };
 
 // GET /api/assessments/:id/results/:attemptId
-// One candidate's written answers and Helper conversation, stage by stage, next to the recruiter's guidance notes.
+// One candidate's written answers, AI scores and Helper conversation, stage by stage, next to the recruiter's guidance notes.
 exports.getAttemptDetail = async (req, res, next) => {
   try {
     const assessment = await findOwned(req);
@@ -168,19 +176,31 @@ exports.getAttemptDetail = async (req, res, next) => {
         status: attemptStatus(attempt),
         answered: attempt.answers.length,
         total: questions.length,
+        score: totalScore(attempt),
+        maxScore: questions.length * MAX_STAGE_SCORE,
+        overallFeedback: attempt.overallFeedback ?? null,
+        aiSteeringScore: attempt.aiSteeringScore ?? null,
+        aiSteeringRationale: attempt.aiSteeringRationale ?? null,
         startedAt: attempt.startedAt,
         submittedAt: attempt.submittedAt,
       },
       // One entry per stage: the question, what the candidate wrote (null if never reached),
       // and how they used the Helper on it.
-      responses: questions.map((q, i) => ({
-        prompt: q.prompt,
-        guidance: q.guidance ?? null,
-        answer: attempt.answers[i] ?? null,
-        helper: attempt.helperMessages
-          .filter((m) => m.stage === i)
-          .map((m) => ({ role: m.role, content: m.content })),
-      })),
+      responses: questions.map((q, i) => {
+        const evaluation = attempt.evaluations.find((e) => e.stage === i);
+        return {
+          prompt: q.prompt,
+          guidance: q.guidance ?? null,
+          axis: q.axis ?? null,
+          trapClaim: q.trapClaim ?? null,
+          answer: attempt.answers[i] ?? null,
+          score: evaluation?.score ?? null,
+          rationale: evaluation?.rationale ?? null,
+          helper: attempt.helperMessages
+            .filter((m) => m.stage === i)
+            .map((m) => ({ role: m.role, content: m.content })),
+        };
+      }),
     });
   } catch (err) {
     next(err);
