@@ -4,14 +4,13 @@ require("dotenv").config();
 const mongoose = require("mongoose");
 const QuestionSequence = require("../models/questionSequence");
 
-// q(prompt, guidance): `guidance` is recruiter-only notes on what a strong answer covers.
 const q = (prompt, guidance) => ({ prompt, guidance });
 
 const sequences = [
+  // --- NON-SDE SEQUENCE ---
   {
     name: "Robotic Welding Cell",
-    // Neutral background the Helper can search. Definitions only: don't put the answers in here.
-    // Paragraphs are separated by a blank line, and each one is searched separately.
+    domain: "Manufacturing", // Strictly tags this for Non-SDE
     sourceMaterial: [
       "Gas metal arc welding, often called MIG welding, feeds a continuous consumable wire electrode through a torch while shielding gas flows around the arc and the weld pool. In a robotic cell the robot moves the torch along a programmed path, while the power source controls wire feed speed and voltage.",
       "Shielding gas protects the molten weld pool from oxygen, nitrogen and moisture in the surrounding air. The gas composition influences arc stability, spatter, how metal transfers across the arc, how deeply the weld penetrates and how the finished bead looks.",
@@ -45,23 +44,53 @@ const sequences = [
       ),
     ],
   },
+  
+  // --- SDE SEQUENCE ---
+  {
+    name: "Full-Stack Web Architecture",
+    domain: "SDE", // Strictly tags this for SDE
+    sourceMaterial: [
+      "A Single Page Application (SPA) loads a single HTML document and dynamically updates the content as the user interacts with the app, typically using JavaScript frameworks like React, Angular, or Vue.",
+      "Server-Side Rendering (SSR) generates the full HTML for a page on the server in response to navigation. This can improve initial load time and SEO, but increases server load.",
+      "A REST API uses standard HTTP methods (GET, POST, PUT, DELETE) to interact with resources identified by URIs. GraphQL is an alternative that allows clients to request exactly the data they need in a single query.",
+      "Relational databases (SQL) organize data into tables with predefined schemas and enforce relationships. NoSQL databases (like MongoDB) use flexible schemas, often storing data in JSON-like documents.",
+      "Caching temporarily stores copies of data or web pages to serve future requests faster. Common caching layers include CDNs for static assets, Redis for database queries, and browser caching.",
+      "Microservices architecture structures an application as a collection of loosely coupled, independently deployable services. Monolithic architecture builds the application as a single, unified unit.",
+      "Authentication verifies the identity of a user, often using tokens (like JWT) or sessions. Authorization determines what resources an authenticated user is permitted to access."
+    ].join("\n\n"),
+    questions: [
+      q(
+        "You are designing a web application that requires real-time collaborative editing features. How would you choose between using long-polling, Server-Sent Events (SSE), or WebSockets?",
+        "WebSockets provide true bidirectional, low-latency communication, ideal for real-time collaborative editing. SSE is unidirectional (server to client) and long-polling is resource-intensive with higher latency. The answer should justify WebSockets based on the bidirectional need."
+      ),
+      q(
+        "A heavily trafficked e-commerce site is experiencing slow page load times due to complex database queries on the product catalog. What caching strategies would you implement to resolve this?",
+        "Implement a Redis or Memcached layer to cache the results of frequent, complex database queries. Utilize a CDN to cache static product images and assets. Credit answers that distinguish between data-tier caching and edge caching."
+      ),
+      q(
+        "When transitioning an application from a monolithic architecture to microservices, what are the primary challenges regarding data consistency and how do you address them?",
+        "Challenges include distributed transactions and maintaining data integrity across disparate databases. Solutions involve eventual consistency, the Saga pattern, event-driven architectures, and avoiding shared databases between microservices."
+      ),
+      q(
+        "Explain the differences between Server-Side Rendering (SSR) and Client-Side Rendering (CSR). In what scenario would you explicitly choose SSR over CSR?",
+        "SSR renders HTML on the server; CSR relies on the browser to execute JavaScript and build the DOM. SSR is preferred for applications where SEO (Search Engine Optimization) and fast initial Time-to-First-Byte (TTFB) are critical, such as public content sites."
+      ),
+      q(
+        "A user logs into your SPA. Describe a secure implementation for handling the authentication token (e.g., JWT) to prevent Cross-Site Scripting (XSS) and Cross-Site Request Forgery (CSRF) attacks.",
+        "Store the JWT in an HttpOnly, Secure cookie to mitigate XSS (since JavaScript cannot access it). Implement Anti-CSRF tokens (Synchronizer Token Pattern) or use the SameSite cookie attribute to protect against CSRF attacks."
+      ),
+    ],
+  },
 ];
-
-// Earlier starter sets that no longer fit.
-// "Web Debugging Scenarios" was dropped too: the AI service's Helper is written for engineering and
-// manufacturing subjects, so it would treat software questions as off topic.
-const RETIRED = ["JavaScript Fundamentals", "React Basics", "Web Debugging Scenarios"];
 
 async function main() {
   if (!process.env.MONGODB_URI) throw new Error("MONGODB_URI is not set");
   await mongoose.connect(process.env.MONGODB_URI);
 
-  const removed = await QuestionSequence.deleteMany({ name: { $in: RETIRED } });
-  if (removed.deletedCount) console.log(`Removed ${removed.deletedCount} old multiple-choice sequence(s)`);
-
   for (const s of sequences) {
+    // Upsert will overwrite the old mislabeled database objects with the correct domains
     await QuestionSequence.findOneAndUpdate({ name: s.name }, s, { upsert: true, runValidators: true });
-    console.log(`Seeded "${s.name}" (${s.questions.length} stages)`);
+    console.log(`Seeded "${s.name}" (${s.questions.length} stages) [Domain: ${s.domain}]`);
   }
   await mongoose.connection.close();
 }

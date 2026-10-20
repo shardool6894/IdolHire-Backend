@@ -46,7 +46,17 @@ async function findOwned(req) {
 // GET /api/question-sequences
 exports.listQuestionSequences = async (req, res, next) => {
   try {
-    const sequences = await QuestionSequence.find().select("name").sort("name");
+    const { typeOfInterview } = req.query;
+    
+    // Map the frontend role selection to the new schema domain
+    let filter = {};
+    if (typeOfInterview === "SDE") {
+      filter.domain = "SDE";
+    } else if (typeOfInterview === "Non-SDE") {
+      filter.domain = "Manufacturing";
+    }
+
+    const sequences = await QuestionSequence.find(filter).select("name").sort("name");
     res.json({ sequences: sequences.map((s) => ({ id: s._id, name: s.name })) });
   } catch (err) {
     next(err);

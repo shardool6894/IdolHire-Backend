@@ -19,6 +19,13 @@ const questionSchema = new mongoose.Schema(
 const questionSequenceSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, unique: true, trim: true },
+    // Restricts the sequence to specific roles so SDE and Manufacturing aren't mixed up.
+    domain: { 
+      type: String, 
+      required: true, 
+      enum: ['SDE', 'Manufacturing', 'General'],
+      default: 'General'
+    },
     // Background notes the Helper searches when answering hints. Paragraphs separated by a blank line.
     // Keep it neutral: it is given to the Helper, so don't put the answers in it.
     sourceMaterial: { type: String, maxlength: 20000 },
