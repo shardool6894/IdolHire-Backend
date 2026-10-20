@@ -139,7 +139,6 @@ exports.joinAssessment = async (req, res, next) => {
       try {
         attempt = await Attempt.create({
           assessment: assessment._id,
-          typeOfInterview: assessment.typeOfInterview,
           candidate: req.user._id,
           startedAt,
           expiresAt: new Date(startedAt.getTime() + assessment.durationMinutes * 60 * 1000),

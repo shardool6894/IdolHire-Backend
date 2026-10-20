@@ -58,6 +58,10 @@ exports.createAssessment = async (req, res, next) => {
   try {
     const { questionSequenceId, durationMinutes, typeOfInterview } = req.body;
 
+    if (!["SDE", "Non-SDE"].includes(typeOfInterview)) {
+      return res.status(400).json({ error: "Pick an interview type" });
+    }
+
     if (typeof questionSequenceId !== "string" || !OBJECT_ID_RE.test(questionSequenceId)) {
       return res.status(400).json({ error: "Pick a question sequence" });
     }
