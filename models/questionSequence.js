@@ -19,6 +19,7 @@ const questionSchema = new mongoose.Schema(
 const questionSequenceSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, unique: true, trim: true },
+    typeOfInterview: { type: String, enum: ["SDE", "Non-SDE"], default: "Non-SDE", required: true },
     // Restricts the sequence to specific roles so SDE and Manufacturing aren't mixed up.
     domain: { 
       type: String, 

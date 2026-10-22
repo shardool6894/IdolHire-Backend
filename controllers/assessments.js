@@ -50,6 +50,7 @@ async function findOwned(req) {
 exports.listQuestionSequences = async (req, res, next) => {
   try {
     const { typeOfInterview } = req.query;
+    const filter = {};
     if (!isInterviewType(typeOfInterview)) {
       return res.status(400).json({ error: "Pick an interview type" });
     }

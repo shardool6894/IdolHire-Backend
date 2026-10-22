@@ -10,6 +10,7 @@ const sequences = [
   // --- NON-SDE SEQUENCE ---
   {
     name: "Robotic Welding Cell",
+    typeOfInterview: "Non-SDE",
     domain: "Manufacturing", // Strictly tags this for Non-SDE
     sourceMaterial: [
       "Gas metal arc welding, often called MIG welding, feeds a continuous consumable wire electrode through a torch while shielding gas flows around the arc and the weld pool. In a robotic cell the robot moves the torch along a programmed path, while the power source controls wire feed speed and voltage.",
@@ -47,40 +48,64 @@ const sequences = [
   
   // --- SDE SEQUENCE ---
   {
-    name: "Full-Stack Web Architecture",
-    domain: "SDE", // Strictly tags this for SDE
+    name: "SDE: Data Structures & Algorithms",
+    typeOfInterview: "SDE",
+    // Neutral definitions only. The Helper searches this, so no answers in here.
     sourceMaterial: [
-      "A Single Page Application (SPA) loads a single HTML document and dynamically updates the content as the user interacts with the app, typically using JavaScript frameworks like React, Angular, or Vue.",
-      "Server-Side Rendering (SSR) generates the full HTML for a page on the server in response to navigation. This can improve initial load time and SEO, but increases server load.",
-      "A REST API uses standard HTTP methods (GET, POST, PUT, DELETE) to interact with resources identified by URIs. GraphQL is an alternative that allows clients to request exactly the data they need in a single query.",
-      "Relational databases (SQL) organize data into tables with predefined schemas and enforce relationships. NoSQL databases (like MongoDB) use flexible schemas, often storing data in JSON-like documents.",
-      "Caching temporarily stores copies of data or web pages to serve future requests faster. Common caching layers include CDNs for static assets, Redis for database queries, and browser caching.",
-      "Microservices architecture structures an application as a collection of loosely coupled, independently deployable services. Monolithic architecture builds the application as a single, unified unit.",
-      "Authentication verifies the identity of a user, often using tokens (like JWT) or sessions. Authorization determines what resources an authenticated user is permitted to access."
+      "Time complexity describes how the number of steps an algorithm takes grows with the input size n, written in big O notation. Space complexity does the same for extra memory. O(1) is constant, O(log n) logarithmic, O(n) linear, O(n log n) linearithmic and O(n^2) quadratic.",
+      "A hash map stores key and value pairs and finds a key in O(1) time on average by turning the key into an array index with a hash function. Different keys can collide, and the table resolves that with chaining or probing. A set is a hash map that stores keys only.",
+      "A stack is a last in, first out collection. Push adds an item to the top, pop removes the top item and peek reads it. A queue is first in, first out, with items added at the back and removed from the front.",
+      "A singly linked list is a chain of nodes, each holding a value and a reference to the next node, and the last node points to nothing. Reaching the k-th node means walking k links from the head. Changing the next references of nodes is how a list is rearranged without copying values.",
+      "Binary search finds a value in a sorted array by comparing against the middle element and discarding the half that cannot contain it, so the search range shrinks by half each step. Lower bound is the first position whose value is not less than the target. Upper bound is the first position whose value is greater than the target.",
+      "A grid can be treated as a graph where each cell is a node and neighbouring cells are connected. Depth first search follows one path as far as it goes before backing up, using recursion or a stack. Breadth first search visits nodes in rings of increasing distance, using a queue. Either one needs a record of visited nodes to avoid going in circles.",
+      "Edge cases worth testing are the empty input, a single element, duplicate values, all elements equal, and the largest allowed input. Deep recursion can overflow the call stack, which is why some solutions use an explicit stack or queue instead.",
     ].join("\n\n"),
     questions: [
-      q(
-        "You are designing a web application that requires real-time collaborative editing features. How would you choose between using long-polling, Server-Sent Events (SSE), or WebSockets?",
-        "WebSockets provide true bidirectional, low-latency communication, ideal for real-time collaborative editing. SSE is unidirectional (server to client) and long-polling is resource-intensive with higher latency. The answer should justify WebSockets based on the bidirectional need."
-      ),
-      q(
-        "A heavily trafficked e-commerce site is experiencing slow page load times due to complex database queries on the product catalog. What caching strategies would you implement to resolve this?",
-        "Implement a Redis or Memcached layer to cache the results of frequent, complex database queries. Utilize a CDN to cache static product images and assets. Credit answers that distinguish between data-tier caching and edge caching."
-      ),
-      q(
-        "When transitioning an application from a monolithic architecture to microservices, what are the primary challenges regarding data consistency and how do you address them?",
-        "Challenges include distributed transactions and maintaining data integrity across disparate databases. Solutions involve eventual consistency, the Saga pattern, event-driven architectures, and avoiding shared databases between microservices."
-      ),
-      q(
-        "Explain the differences between Server-Side Rendering (SSR) and Client-Side Rendering (CSR). In what scenario would you explicitly choose SSR over CSR?",
-        "SSR renders HTML on the server; CSR relies on the browser to execute JavaScript and build the DOM. SSR is preferred for applications where SEO (Search Engine Optimization) and fast initial Time-to-First-Byte (TTFB) are critical, such as public content sites."
-      ),
-      q(
-        "A user logs into your SPA. Describe a secure implementation for handling the authentication token (e.g., JWT) to prevent Cross-Site Scripting (XSS) and Cross-Site Request Forgery (CSRF) attacks.",
-        "Store the JWT in an HttpOnly, Secure cookie to mitigate XSS (since JavaScript cannot access it). Implement Anti-CSRF tokens (Synchronizer Token Pattern) or use the SameSite cookie attribute to protect against CSRF attacks."
-      ),
+      {
+        axis: "Arrays & Hashing",
+        prompt:
+          "Given an array of integers and a target, return the indices of two different elements that add up to the target. Write a function in the language of your choice, print its result for ([2, 7, 11, 15], 9) and ([3, 2, 4], 6), and state its time and space complexity.",
+        guidance:
+          "Strong: one pass with a hash map from value to index, checking target - x before inserting x: O(n) time, O(n) space. Brute force with two loops is O(n^2) time, O(1) space and is acceptable but scores lower unless the trade-off is explained. Credit handling of duplicates (3 + 3 = 6) and of no valid pair. Code should run and print [0, 1] and [1, 2].",
+      },
+      {
+        axis: "Stacks",
+        prompt:
+          "Given a string containing only the characters ( ) [ ] { }, return whether it is valid: every opening bracket is closed by the same type of bracket, in the correct order. Print the result for \"()[]{}\", \"([)]\" and \"{[]}\", and state the complexity.",
+        guidance:
+          "Strong: a stack. Push each opener; on a closer, the stack must be non-empty and its top must be the matching opener; at the end the stack must be empty. O(n) time, O(n) space. Expected output: true, false, true. A counter per bracket type is wrong because it accepts \"([)]\". Credit edge cases: empty string (valid), odd length, a closer arriving on an empty stack.",
+      },
+      {
+        axis: "Linked Lists",
+        prompt:
+          "Define a singly linked list node, build the list 1 -> 2 -> 3 -> 4 -> 5, reverse it in place, and print the list before and after. Then explain how you would detect whether a list contains a cycle, and what extra memory your method needs.",
+        guidance:
+          "Strong: iterative reversal with prev, current and next pointers, O(n) time and O(1) space; output 1 2 3 4 5 then 5 4 3 2 1. Recursive reversal is fine if its O(n) stack depth is noted. Cycle detection: Floyd's slow and fast pointers, O(n) time and O(1) space; a visited set also works at O(n) space. Credit handling of an empty list and a single node.",
+      },
+      {
+        axis: "Binary Search",
+        prompt:
+          "You have a sorted array of integers that may contain duplicates. Return the first and last index of a target value, or [-1, -1] if it is absent, in O(log n) time. Print the result for ([5, 7, 7, 8, 8, 10], 8) and ([5, 7, 7, 8, 8, 10], 6).",
+        trapClaim:
+          "Just use the built-in indexOf and lastIndexOf. They are optimized native functions, so this is effectively O(log n) and you don't need to write a binary search.",
+        guidance:
+          "The AI claim is wrong: indexOf and lastIndexOf scan linearly, so this is O(n) however fast the native code is. Strong answers say so and run two binary searches: lower bound of the target for the first index, and upper bound minus one (or lower bound of target + 1 minus one) for the last, checking the value actually equals the target. Finding one match and then walking outwards is O(n) when everything is a duplicate. Expected output: [3, 4] and [-1, -1]. Credit correct loop termination and mid computation.",
+      },
+      {
+        axis: "Graph Traversal",
+        prompt: [
+          "You are given a grid of '1' (land) and '0' (water). An island is a group of land cells connected horizontally or vertically (not diagonally). Count the islands and print the result for this grid, then state the time and space complexity.",
+          "",
+          "11000",
+          "11000",
+          "00100",
+          "00011",
+        ].join("\n"),
+        guidance:
+          "Strong: scan every cell; on an unvisited land cell, count one island and flood fill it with DFS or BFS, marking cells visited (by changing the grid or with a visited set). Expected output: 3. O(R * C) time; O(R * C) space in the worst case for the visited set, recursion stack or queue. Union find is also acceptable. Credit bounds checks, not treating diagonals as connected, and noting that recursive DFS can overflow the stack on a large grid.",
+      },
     ],
-  },
+  }
 ];
 
 async function main() {
