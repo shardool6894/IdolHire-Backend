@@ -10,7 +10,6 @@ const sequences = [
   // --- NON-SDE SEQUENCE ---
   {
     name: "Robotic Welding Cell",
-    typeOfInterview: "Non-SDE",
     domain: "Manufacturing", // Strictly tags this for Non-SDE
     sourceMaterial: [
       "Gas metal arc welding, often called MIG welding, feeds a continuous consumable wire electrode through a torch while shielding gas flows around the arc and the weld pool. In a robotic cell the robot moves the torch along a programmed path, while the power source controls wire feed speed and voltage.",
@@ -49,7 +48,7 @@ const sequences = [
   // --- SDE SEQUENCE ---
   {
     name: "SDE: Data Structures & Algorithms",
-    typeOfInterview: "SDE",
+    domain: "SDE", // Strictly tags this for SDE
     // Neutral definitions only. The Helper searches this, so no answers in here.
     sourceMaterial: [
       "Time complexity describes how the number of steps an algorithm takes grows with the input size n, written in big O notation. Space complexity does the same for extra memory. O(1) is constant, O(log n) logarithmic, O(n) linear, O(n log n) linearithmic and O(n^2) quadratic.",
@@ -105,12 +104,20 @@ const sequences = [
           "Strong: scan every cell; on an unvisited land cell, count one island and flood fill it with DFS or BFS, marking cells visited (by changing the grid or with a visited set). Expected output: 3. O(R * C) time; O(R * C) space in the worst case for the visited set, recursion stack or queue. Union find is also acceptable. Credit bounds checks, not treating diagonals as connected, and noting that recursive DFS can overflow the stack on a large grid.",
       },
     ],
-  }
+  },
 ];
+
+// Old web-dev sequences. They are moved to the "General" domain, which no interview type can select,
+// so recruiters stop seeing them but nothing is deleted. Assessments already built on them will refuse
+// new candidates (joinAssessment returns 409); `npm run audit -- --close` closes those assessments.
+const RETIRED = ["Full-Stack Web Architecture", "JavaScript Fundamentals", "React Basics", "Web Debugging Scenarios"];
 
 async function main() {
   if (!process.env.MONGODB_URI) throw new Error("MONGODB_URI is not set");
   await mongoose.connect(process.env.MONGODB_URI);
+
+  const retired = await QuestionSequence.updateMany({ name: { $in: RETIRED } }, { $set: { domain: "General" } });
+  if (retired.modifiedCount) console.log(`Retired ${retired.modifiedCount} web-dev sequence(s) (domain set to General)`);
 
   for (const s of sequences) {
     // Upsert will overwrite the old mislabeled database objects with the correct domains
